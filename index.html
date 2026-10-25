@@ -13,7 +13,74 @@ const fresh=()=>({version:2,cover:null,photos:[],days:{},targets:{kcal:2200,p:16
 try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.version===2&&s.days&&s.targets&&Array.isArray(s.photos))state=s}catch(e){}
 const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function day(){const key=date();if(!state.days[key])state.days[key]={food:[],weight:null,workout:null};return state.days[key]}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(state));return true}catch(e){toast('Память заполнена или недоступна. Сохрани резервную копию в настройках.');return false}}
+function save(){
+  try{
+    localStorage.setItem(KEY,JSON.stringify(state));
+    syncStateToServer();
+    return true;
+  }catch(e){
+    toast('Память заполнена или недоступна. Сохрани резервную копию в настройках.');
+    return false;
+  }
+}
+
+const API_URL='https://motivation-api.kullakoo-jpg.workers.dev';
+
+async function syncStateToServer(){
+  const tg=window.Telegram?.WebApp;
+
+  if(!tg?.initData) return;
+
+  try{
+    await fetch(API_URL+'/profile',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'X-Telegram-Init-Data':tg.initData
+      },
+      body:JSON.stringify({
+        profile_json:state
+      })
+    });
+  }catch(e){
+    console.warn('Не удалось синхронизировать данные с сервером',e);
+  }
+}
+
+async function loadStateFromServer(){
+  const tg=window.Telegram?.WebApp;
+
+  if(!tg?.initData) return;
+
+  try{
+    const response=await fetch(API_URL+'/me',{
+      headers:{
+        'X-Telegram-Init-Data':tg.initData
+      }
+    });
+
+    const result=await response.json();
+
+    if(
+      result.ok &&
+      result.profile?.profile_json
+    ){
+      const serverState=JSON.parse(result.profile.profile_json);
+
+      if(serverState && typeof serverState==='object'){
+        state={
+          ...state,
+          ...serverState
+        };
+
+        localStorage.setItem(KEY,JSON.stringify(state));
+        draw();
+      }
+    }
+  }catch(e){
+    console.warn('Не удалось загрузить данные с сервера',e);
+  }
+}
 function toast(s){$('toast').textContent=s;$('toast').style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').style.display='none',3800)}
 const plans=[[['Жим ногами','8–12','Опускай плавно. Не отрывай таз от спинки.'],['Жим в тренажёре для груди','8–12','Держи лопатки устойчиво. Двигайся без боли.'],['Тяга верхнего блока','10–15','Тяни к груди, не за голову. Без рывков.'],['Сгибание ног','10–15','Возвращай вес медленно.'],['Гантели в стороны','10–15','Без раскачивания. Не поднимай плечи.'],['Разгибание рук на блоке','10–15','Не двигай локтями.'],['Скручивания на блоке','10–15','Делай плавно, не тяни руками.']],[['Ягодичный мост в тренажёре','8–12','Не прогибай поясницу.'],['Наклонный жим гантелей','8–12','Небольшой наклон. Комфортная амплитуда.'],['Горизонтальная тяга','10–15','Не раскачивай корпус.'],['Жим ногами','10–15','Контролируй опускание.'],['Гантели в стороны','10–15','Лёгкий вес, без рывков.'],['Сгибание рук с гантелями','10–15','Локти устойчивы.'],['Подъёмы коленей в упоре','8–15','Без махов. Пропусти при дискомфорте.']],[['Жим ногами','8–12','Не отрывай таз от спинки.'],['Жим в тренажёре для груди','8–12','Контролируй вес на всём движении.'],['Тяга верхнего блока','10–15','Плавно возвращай рукоять.'],['Сгибание ног','10–15','Комфортная амплитуда.'],['Горизонтальная тяга','10–15','Без рывков.'],['Сгибание рук на блоке','10–15','Не раскачивайся.'],['Скручивания на блоке','10–15','Не тяни руками.']]];
 function completed(){return Object.values(state.days).filter(d=>d.workout?.done).length}
@@ -47,7 +114,9 @@ function backup(){const u=URL.createObjectURL(new Blob([JSON.stringify(state,nul
 function erase(){if(confirm('Удалить все фото и записи из этого браузера?')){try{localStorage.removeItem(KEY);state=fresh();restEnd=0;$('dialog').close();draw();toast('Данные удалены')}catch(e){toast('Удаление недоступно. Открой настройки браузера.')}}}
 function showIntro(){if($('dialog').open)$('dialog').close();const overlay=document.createElement('section');overlay.className='welcome';overlay.id='welcome';overlay.innerHTML=`<div class="welcome-inner">${state.cover?`<img src="${safe(state.cover)}" alt="Твоё изображение-мотивация">`:''}<div class="shade"></div><div class="logo">мотивация<span class="dot">.</span></div><div class="welcome-copy"><div class="eyebrow">Не гонка. Твой путь.</div><h1>Становись сильнее.<br>Для себя.</h1><p class="muted">Тренировки. Еда. Твой прогресс.<br>Ничего лишнего.</p><button class="btn full" onclick="enter()">Поехали →</button></div></div>`;document.body.append(overlay)}
 function enter(){state.intro=false;save();$('welcome')?.remove()}
-draw();if(state.intro)showIntro();
+draw();
+if(state.intro)showIntro();
+loadStateFromServer();
 // Original local prototype extension. No proprietary code or media.
 if(!state.coach)state.coach={start:date(),accepted:false,foodOK:false,mode:'balanced',limits:''};
 if(!state.targets.f)state.targets.f=70;
